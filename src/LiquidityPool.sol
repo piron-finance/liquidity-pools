@@ -4,7 +4,6 @@ pragma solidity ^0.8.9;
 import {ERC20} from "./tokens/ERC20.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
-import "./interfaces/IERC7540.sol";
 
 interface EscrowLike {
     function approve(address token, address spender, uint256 value) external;
@@ -44,7 +43,7 @@ interface ManagerLike {
 ///         After execution users can use the deposit, mint, redeem and withdraw functions to get their shares
 ///         and/or assets from the pools.
 
-contract LiquidityPool is ERC7540 {
+contract LiquidityPool is ERC20 {
     using SafeTransferLib for ERC20;
     using FixedPointMathLib for uint256;
 
