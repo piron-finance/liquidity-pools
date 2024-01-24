@@ -1,22 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.19;
 
-import {ERC20} from "./token/ERC20.sol";
+import {ERC20} from "./tokens/ERC20.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
-import "contracts/interfaces/IERC20.sol";
-import "contracts/interfaces/IERC7575.sol";
+import "./interfaces/IERC20.sol";
+import "./interfaces/IERC7575.sol";
 
 interface ManagerLike {
-    function requestDeposit(address lp, uint256 assets, address receiver, address owner) external returns (bool);
-    function requestRedeem(address lp, uint256 shares, address receiver, address owner) external returns (bool);
-    function decreaseDepositRequest(address lp, uint256 assets, address owner) external;
-    function decreaseRedeemRequest(address lp, uint256 shares, address owner) external;
-    function cancelDepositRequest(address lp, address owner) external;
-    function cancelRedeemRequest(address lp, address owner) external;
-    function pendingDepositRequest(address lp, address owner) external view returns (uint256);
-    function pendingRedeemRequest(address lp, address owner) external view returns (uint256);
-    function exchangeRateLastUpdated(address lp) external view returns (uint64);
     function deposit(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
     function mint(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
     function withdraw(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
@@ -27,6 +18,10 @@ interface ManagerLike {
     function maxRedeem(address lp, address receiver) external view returns (uint256);
     function convertToShares(address lp, uint256 assets) external view returns (uint256);
     function convertToAssets(address lp, uint256 shares) external view returns (uint256);
+    function previewMint(address lp, uint256 shares) external view returns (uint256 assets);
+    function previewDeposit(address lp, uint256 assets) external view returns (uint256 shares);
+    function previewWithdraw(address lp, uint256 assets) external view returns (uint256 shares);
+    function previewRedeem(address lp, uint256 shares) external view returns (uint256 assets);
 }
 
 contract LiquidityPool is IERC4626 {
@@ -36,10 +31,11 @@ contract LiquidityPool is IERC4626 {
     mapping(address => uint256) public shareHolders;
 
     //   Immutables
-    address public immutable asset;
-    address public immutable owner;
+    address public immutable asset_;
     uint64 public immutable poolId;
-    address public immutable share;
+    address public immutable share_;
+    /// @notice Identifier of the share of the pool
+    bytes16 public immutable trancheId;
 
     /// @notice Liquidity Pool implementation contract
     ManagerLike public manager;
@@ -47,149 +43,144 @@ contract LiquidityPool is IERC4626 {
     /// @notice Escrow contract for tokens
     address public immutable escrow;
 
-    constructor(address _asset, address _share, uint64 _poolId, address _manager, address _escrow) {
-        asset = _asset;
-        share = _share;
+    constructor(address _asset, address _share, bytes16 _trancheId, uint64 _poolId, address _manager, address _escrow) {
+        asset_ = _asset;
+        share_ = _share;
         escrow = _escrow;
+        trancheId = _trancheId;
         manager = ManagerLike(_manager);
-        owner = msg.sender;
         poolId = _poolId;
     }
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can call this function.");
-        _;
-    }
+    // modifier onlyOwner() {
+    //     require(msg.sender == owner, "Only owner can call this function.");
+    //     _;
+    // }
 
     // add request deposit with eip2612. add logic for share
 
-    // Deposit and Withdrawal Logic
-    function deposit(uint256 assets_, address receiver) external override returns (uint256 shares) {
-        require((shares = previewDeposit(assets_)) != 0, "ZERO_SHARES"); //since we round down in previewDeposit, this is a safe check
-        require(assets_ > 0, "Deposit less than Zero");
-        require(ERC20(asset).balanceOf(msg.sender) >= assets_, "Insufficient balance");
-
-        SafeTransferLib.safeTransferFrom(msg.sender, address(this), assets_);
-
-        _mint(receiver, shares);
-        shareHolders[msg.sender] += shares;
-    }
-
-    function mint(uint256 shares_, address receiver) public virtual returns (uint256 assets) {
-        require(shares_ > 0, "Mint less than Zero");
-
-        assets = previewMint(shares_); // no need to check for rounding error since we round up
-
-        // we need to transfer assets before minting
-        ERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
-        emit Deposit(msg.sender, receiver, assets, shares_);
-
-        _mint(receiver, shares_);
-        shareHolders[msg.sender] += shares_;
-    }
-
-    function withdraw(uint256 assets_, address receiver, address owner_) public virtual returns (uint256 shares) {
-        require(assets_ > 0, "Withdraw less than Zero");
-        require(receiver != address(0), "Receiver is Zero");
-        require(shareHolders[owner_] >= assets_, "Insufficient balance");
-        shares = previewWithdraw(assets_);
-
-        // updating allowance
-        if (msg.sender != owner_) {
-            uint256 allowed = allowance[owner_][msg.sender]; //saves gas for limited approvals
-            if (allowed != type(uint256).max) {
-                allowance[owner_][msg.sender] = allowed - shares;
-            }
-        }
-
-        _burn(owner_, shares);
-        shareHolders[owner_] -= shares;
-
-        emit Withdraw(msg.sender, receiver, owner_, assets_, shares);
-        ERC20(asset).safeTransfer(receiver, assets_);
-    }
-
-    function redeem(uint256 shares_, address receiver, address owner_) public virtual returns (uint256 assets) {
-        require((assets = previewRedeem(shares_)) != 0, "ZERO_ASSETS");
-        require(shares_ > 0, "Withdraw less than Zero");
-        require(receiver != address(0), "Receiver is Zero");
-        require(shareHolders[owner_] >= shares_, "Insufficient balance");
-
-        // updating allowance
-        if (msg.sender != owner_) {
-            uint256 allowed = allowance[owner_][msg.sender]; //saves gas for limited approvals
-            if (allowed != type(uint256).max) {
-                allowance[owner_][msg.sender] = allowed - shares_;
-            }
-        }
-
-        _burn(owner_, shares_);
-        shareHolders[owner_] -= shares_;
-        emit Withdraw(msg.sender, receiver, owner_, assets, shares_);
-        ERC20(asset).safeTransfer(receiver, assets);
-    }
-
-    // View functions
+    /*//////////////////////////////////////////////////////////////
+                        DEPOSIT/WITHDRAWAL LOGIC
+    //////////////////////////////////////////////////////////////*/
 
     // --- ERC-4626 methods ----
+    function deposit(uint256 _assets, address receiver) public virtual returns (uint256 shares) {
+        require(_assets > 0, "Deposit less than Zero");
+        require(IERC20(asset_).balanceOf(receiver) >= _assets, "LiquidityPool/Insufficient balance");
+
+        SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), _assets);
+
+        shares = manager.deposit(address(this), _assets, receiver, msg.sender);
+        shareHolders[receiver] += shares;
+    }
+
+    //    add events
+
+    function mint(uint256 _shares, address receiver) public virtual returns (uint256 assets) {
+        require(_shares > 0, "Deposit less than Zero");
+
+        assets = manager.previewMint(address(this), _shares); // No need to check for rounding error, previewMint rounds up.
+        SafeTransferLib.safeTransferFrom(ERC20(asset_), msg.sender, address(escrow), assets);
+
+        assets = manager.mint(address(this), _shares, receiver, msg.sender);
+        shareHolders[receiver] += _shares;
+    }
+
+    function withdraw(uint256 _assets, address receiver, address owner_) public virtual returns (uint256 shares) {
+        require(msg.sender == owner_, "LiquidityPool/not-owner");
+        require(_assets > 0, "Withdraw less than Zero");
+        require(receiver != address(0), "Receiver is Zero");
+        require(shareHolders[owner_] >= _assets, "Insufficient balance");
+
+        shares = manager.withdraw(address(this), _assets, receiver, owner_);
+    }
+
+    function redeem(uint256 _shares, address receiver, address owner_) public virtual returns (uint256 assets) {
+        require(msg.sender == owner_, "LiquidityPool/not-owner");
+        require((assets = previewRedeem(_shares)) != 0, "ZERO_ASSETS");
+        require(_shares > 0, "Withdraw less than Zero");
+        require(receiver != address(0), "Receiver is Zero");
+        require(shareHolders[owner_] >= _shares, "Insufficient balance");
+
+        assets = manager.redeem(address(this), _shares, receiver, owner_);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            ACCOUNTING LOGIC
+    //////////////////////////////////////////////////////////////*/
+
     /// @inheritdoc IERC7575Minimal
     function totalAssets() external view returns (uint256) {
-        return convertToAssets(IERC20Metadata(share).totalSupply());
+        return convertToAssets(IERC20Metadata(share_).totalSupply());
     }
 
-    function convertToShares(uint256 assets_) external view virtual returns (uint256) {
-        uint256 supply = totalSupply;
-
-        return supply == 0 ? assets_ : assets_.mulDivDown(supply, totalAssets());
+    function convertToShares(uint256 _assets) external view virtual returns (uint256) {
+        return manager.convertToShares(address(this), _assets);
     }
 
-    function convertToAssets(uint256 shares_) public view virtual returns (uint256) {
-        uint256 supply = totalSupply;
-
-        return supply == 0 ? shares_ : shares_.mulDivDown(totalAssets(), supply);
+    function convertToAssets(uint256 _shares) public view virtual returns (uint256) {
+        return manager.convertToAssets(address(this), _shares);
     }
 
-    function maxDeposit(address receiver) external pure override returns (uint256) {
-        return type(uint256).max; // Update with your logic if needed
+    function previewDeposit(uint256 _assets) public view virtual returns (uint256) {
+        return manager.previewDeposit(address(this), _assets);
     }
 
-    // fmr func
+    function previewMint(uint256 _shares) public view virtual returns (uint256) {
+        return manager.previewMint(address(this), _shares);
+    }
 
-    // Implement other IERC7575 methods: mint, withdraw, and redeem
+    function previewRedeem(uint256 _shares) public view virtual returns (uint256) {
+        return manager.previewRedeem(address(this), _shares);
+    }
+
+    function previewWithdraw(uint256 assets_) public view virtual returns (uint256) {
+        return manager.previewWithdraw(address(this), assets_);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                     DEPOSIT/WITHDRAWAL LIMIT LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    function maxDeposit(address) public view virtual returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function maxMint(address) public view virtual returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function maxRedeem(address _owner) public view returns (uint256) {
+        return manager.maxRedeem(address(this), _owner);
+    }
+
+    function maxWithdraw(address _owner) public view returns (uint256) {
+        return manager.maxWithdraw(address(this), _owner);
+    }
 
     function totalSharesOfUser(address user) public view returns (uint256) {
         return shareHolders[user];
     }
 
-    // ... (Additional methods and logic)
+    /*//////////////////////////////////////////////////////////////
+                          INTERNAL HOOKS LOGIC
+    //////////////////////////////////////////////////////////////*/
 
-    function previewDeposit(uint256 assets_) public view virtual returns (uint256) {
-        return convertToShares(assets_);
-    }
+    function beforeWithdraw(uint256 assets, uint256 shares) internal virtual {}
 
-    function convertToAssets(uint256 shares_) public view virtual returns (uint256) {
-        uint256 supply = totalSupply;
-
-        return supply == 0 ? shares_ : shares_.mulDivDown(totalAssets(), supply);
-    }
-
-    function previewMint(uint256 shares_) public view virtual returns (uint256) {
-        return convertToAssets(shares_);
-    }
-
-    function previewRedeem(uint256 shares_) public view virtual returns (uint256) {
-        return convertToAssets(shares_);
-    }
-
-    function previewWithdraw(uint256 assets_) public view virtual returns (uint256) {
-        uint256 supply = totalSupply;
-
-        return supply == 0 ? assets_ : assets_.mulDivUp(supply, totalAssets());
-    }
-
-    function maxMint(address receiver) public view virtual returns (uint256) {}
-    function maxRedeem(address _owner) public view virtual returns (uint256) {}
-    function maxWithdraw(address _owner) public view virtual returns (uint256) {}
+    function afterDeposit(uint256 assets, uint256 shares) internal virtual {}
 
     function supportsInterface(bytes4 interfaceId) external view returns (bool) {}
+
+    /*//////////////////////////////////////////////////////////////
+                     VIEW TOKEN FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    function asset() external view override returns (address assetTokenAddress) {
+        return asset_;
+    }
+
+    function share() external view override returns (address shareTokenAddress) {
+        return share_;
+    }
 }
