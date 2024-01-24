@@ -46,18 +46,18 @@ contract TrancheToken is ERC20 {
     }
 
     // --- Administration ---
-    function file(bytes32 what, address data) external auth {
+    function file(bytes32 what, address data) external {
         if (what == "restrictionManager") restrictionManager = RestrictionManagerLike(data);
         else revert("TrancheToken/file-unrecognized-param");
         emit File(what, data);
     }
 
-    function addTrustedForwarder(address trustedForwarder) public auth {
+    function addTrustedForwarder(address trustedForwarder) public {
         trustedForwarders[trustedForwarder] = true;
         emit AddTrustedForwarder(trustedForwarder);
     }
 
-    function removeTrustedForwarder(address trustedForwarder) public auth {
+    function removeTrustedForwarder(address trustedForwarder) public {
         trustedForwarders[trustedForwarder] = false;
         emit RemoveTrustedForwarder(trustedForwarder);
     }
