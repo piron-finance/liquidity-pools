@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+pragma solidity ^0.8.20;
 
-import {ERC20} from "./tokens/ERC20.sol";
+import {ERC20} from "./token/ERC20.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
-
-interface EscrowLike {
-    function approve(address token, address spender, uint256 value) external;
-}
+import "contracts/interfaces/IERC20.sol";
+import "contracts/interfaces/IERC7575.sol";
 
 interface ManagerLike {
     function requestDeposit(address lp, uint256 assets, address receiver, address owner) external returns (bool);
@@ -31,59 +29,47 @@ interface ManagerLike {
     function convertToAssets(address lp, uint256 shares) external view returns (uint256);
 }
 
-/// @title  Liquidity Pool
-/// @notice Liquidity Pool implementation for Piron finance
-///         following the ERC-7540 Asynchronous Tokenized Vault standard
-///
-/// @dev    Each Liquidity Pool is a tokenized vault issuing shares of Centrifuge tranches as restricted ERC-20 tokens
-///         against currency deposits based on the current share price.
-///
-///         ERC-7540 is an extension of the ERC-4626 standard by 'requestDeposit' & 'requestRedeem' methods, where
-///         deposit and redeem orders are submitted to the pools to be included in the execution of the following epoch.
-///         After execution users can use the deposit, mint, redeem and withdraw functions to get their shares
-///         and/or assets from the pools.
-
-contract LiquidityPool is ERC20 {
+contract LiquidityPool is IERC4626 {
     using SafeTransferLib for ERC20;
     using FixedPointMathLib for uint256;
 
     mapping(address => uint256) public shareHolders;
 
-    // Events
-    event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
-
-    event Withdraw(
-        address indexed caller, address indexed receiver, address indexed owner, uint256 assets, uint256 shares
-    );
-
-    // Immutables
-
-    ERC20 public immutable asset;
+    //   Immutables
+    address public immutable asset;
     address public immutable owner;
     uint64 public immutable poolId;
+    address public immutable share;
 
-    constructor(ERC20 _asset, string memory _name, string memory _symbol, uint64 poolId_)
-        ERC20(_name, _symbol, _asset.decimals())
-    {
+    /// @notice Liquidity Pool implementation contract
+    ManagerLike public manager;
+
+    /// @notice Escrow contract for tokens
+    address public immutable escrow;
+
+    constructor(address _asset, address _share, uint64 _poolId, address _manager, address _escrow) {
         asset = _asset;
+        share = _share;
+        escrow = _escrow;
+        manager = ManagerLike(_manager);
         owner = msg.sender;
-        poolId = poolId_;
+        poolId = _poolId;
     }
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function.");
-
         _;
     }
 
-    // Deposit / Withdrawal logic
+    // add request deposit with eip2612. add logic for share
 
-    function deposit(uint256 assets_, address receiver) public virtual returns (uint256 shares) {
+    // Deposit and Withdrawal Logic
+    function deposit(uint256 assets_, address receiver) external override returns (uint256 shares) {
         require((shares = previewDeposit(assets_)) != 0, "ZERO_SHARES"); //since we round down in previewDeposit, this is a safe check
         require(assets_ > 0, "Deposit less than Zero");
-        require(asset.balanceOf(msg.sender) >= assets_, "Insufficient balance");
+        require(ERC20(asset).balanceOf(msg.sender) >= assets_, "Insufficient balance");
 
-        asset.safeTransferFrom(msg.sender, address(this), assets_);
+        SafeTransferLib.safeTransferFrom(msg.sender, address(this), assets_);
 
         _mint(receiver, shares);
         shareHolders[msg.sender] += shares;
@@ -91,10 +77,11 @@ contract LiquidityPool is ERC20 {
 
     function mint(uint256 shares_, address receiver) public virtual returns (uint256 assets) {
         require(shares_ > 0, "Mint less than Zero");
+
         assets = previewMint(shares_); // no need to check for rounding error since we round up
 
         // we need to transfer assets before minting
-        asset.safeTransferFrom(msg.sender, address(this), assets);
+        ERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
         emit Deposit(msg.sender, receiver, assets, shares_);
 
         _mint(receiver, shares_);
@@ -119,7 +106,7 @@ contract LiquidityPool is ERC20 {
         shareHolders[owner_] -= shares;
 
         emit Withdraw(msg.sender, receiver, owner_, assets_, shares);
-        asset.safeTransfer(receiver, assets_);
+        ERC20(asset).safeTransfer(receiver, assets_);
     }
 
     function redeem(uint256 shares_, address receiver, address owner_) public virtual returns (uint256 assets) {
@@ -139,45 +126,45 @@ contract LiquidityPool is ERC20 {
         _burn(owner_, shares_);
         shareHolders[owner_] -= shares_;
         emit Withdraw(msg.sender, receiver, owner_, assets, shares_);
-        asset.safeTransfer(receiver, assets);
+        ERC20(asset).safeTransfer(receiver, assets);
     }
 
-    // view functions
+    // View functions
+
+    // --- ERC-4626 methods ----
+    /// @inheritdoc IERC7575Minimal
+    function totalAssets() external view returns (uint256) {
+        return convertToAssets(IERC20Metadata(share).totalSupply());
+    }
+
+    function convertToShares(uint256 assets_) external view virtual returns (uint256) {
+        uint256 supply = totalSupply;
+
+        return supply == 0 ? assets_ : assets_.mulDivDown(supply, totalAssets());
+    }
+
+    function convertToAssets(uint256 shares_) public view virtual returns (uint256) {
+        uint256 supply = totalSupply;
+
+        return supply == 0 ? shares_ : shares_.mulDivDown(totalAssets(), supply);
+    }
+
+    function maxDeposit(address receiver) external pure override returns (uint256) {
+        return type(uint256).max; // Update with your logic if needed
+    }
+
+    // fmr func
+
+    // Implement other IERC7575 methods: mint, withdraw, and redeem
+
     function totalSharesOfUser(address user) public view returns (uint256) {
         return shareHolders[user];
     }
 
-    // investing logic
-    // function lendOnAave(address aaveV3, uint256 asset_amount) public onlyOwner {
-    //     asset.safeApprove(aaveV3, asset_amount);
-    //     IPool(aaveV3).supply(asset_(), asset_amount, address(this), 0);
-    // }
-
-    // function withdrawFromAave(address aaveV3) public onlyOwner {
-    //     IPool(aaveV3).withdraw(asset_(), type(uint256).max, address(this));
-    // }
-
-    //  Accounting logic
-    function asset_() public view virtual returns (address) {
-        return address(asset);
-    }
-
-    function share_() public view virtual returns (address) {
-        return address(this);
-    }
-
-    function totalAssets() public view virtual returns (uint256) {
-        return asset.balanceOf(address(this));
-    }
+    // ... (Additional methods and logic)
 
     function previewDeposit(uint256 assets_) public view virtual returns (uint256) {
         return convertToShares(assets_);
-    }
-
-    function convertToShares(uint256 assets_) public view virtual returns (uint256) {
-        uint256 supply = totalSupply;
-
-        return supply == 0 ? assets_ : assets_.mulDivDown(supply, totalAssets());
     }
 
     function convertToAssets(uint256 shares_) public view virtual returns (uint256) {
@@ -199,4 +186,10 @@ contract LiquidityPool is ERC20 {
 
         return supply == 0 ? assets_ : assets_.mulDivUp(supply, totalAssets());
     }
+
+    function maxMint(address receiver) public view virtual returns (uint256) {}
+    function maxRedeem(address _owner) public view virtual returns (uint256) {}
+    function maxWithdraw(address _owner) public view virtual returns (uint256) {}
+
+    function supportsInterface(bytes4 interfaceId) external view returns (bool) {}
 }

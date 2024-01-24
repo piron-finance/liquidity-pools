@@ -6,9 +6,14 @@ import {ERC20} from "../tokens/ERC20.sol";
 import {LiquidityPool} from "../LiquidityPool.sol";
 
 interface LiquidityPoolFactoryLike {
-    function newLiquidityPool(address _asset, string memory _name, string memory _symbol, uint64 poolId_)
-        external
-        returns (address);
+    function newLiquidityPool(
+        address asset,
+        address share,
+        address manager,
+        address escrow,
+        uint64 poolId,
+        bytes16 trancheId
+    ) external returns (address);
 }
 
 contract LiquidityPoolFactory {
@@ -18,11 +23,15 @@ contract LiquidityPoolFactory {
     //     emit AddAuthorization(msg.sender);
     // }
 
-    function newLiquidityPool(ERC20 _asset, string memory _name, string memory _symbol, uint64 poolId_)
-        external
-        returns (address)
-    {
-        LiquidityPool pool = new LiquidityPool(_asset, _name, _symbol, poolId_);
+    function newLiquidityPool(
+        address asset,
+        address share,
+        address manager,
+        address escrow,
+        uint64 poolId,
+        bytes16 trancheId
+    ) external returns (address) {
+        LiquidityPool pool = new LiquidityPool(asset, share, manager, escrow, poolId, trancheId);
 
         return address(pool);
     }
