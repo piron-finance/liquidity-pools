@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.19;
 
-import {Auth} from "./Auth.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
 
@@ -16,12 +15,19 @@ interface ERC20Like {
 
 interface LiquidityPoolLike is ERC20Like {
     function poolId() external view returns (uint64);
-    function asset_() external view returns (address);
-    function share_() external view returns (address);
+    function trancheId() external view returns (bytes16);
+    function asset() external view returns (address);
+    function share() external view returns (address);
+    function emitDeposit(address owner, uint256 assets, uint256 shares) external;
+    function emitRedeem(address owner, uint256 assets, uint256 shares) external;
 }
 
 interface EscrowLike {
     function approve(address token, address spender, uint256 value) external;
+}
+
+interface TrancheTokenLike is ERC20Like {
+    function checkTransferRestriction(address from, address to, uint256 value) external view returns (bool);
 }
 
 interface LiquidityPoolFactoryLike {
@@ -33,9 +39,10 @@ interface LiquidityPoolFactoryLike {
 contract InvestmentManager {
     using FixedPointMathLib for uint256;
 
+    // factories
     LiquidityPoolFactoryLike public liquidityPoolFactory;
-    // uint256 public poolId;
-    //  Immutables
+
+    // Immutables
     EscrowLike public immutable escrow;
 
     constructor(address escrow_, address liquidityPoolFactory_) {
@@ -43,33 +50,29 @@ contract InvestmentManager {
         liquidityPoolFactory = LiquidityPoolFactoryLike(liquidityPoolFactory_);
     }
 
-    function deployLiquidityPool() public returns (address) {
-        return liquidityPoolFactory.newLiquidityPool(address(0), "bankly shares", "BKS", 1);
+    /// deposit and withdrawal logic
+    function deposit(address liquidityPool, uint256 assets, address receiver) public returns (uint256 shares) {
+        LiquidityPoolLike pool = LiquidityPoolLike(liquidityPool);
     }
 
-    function deposit(address pool, uint256 amount) public {
-        LiquidityPoolLike(pool).mint(msg.sender, amount);
-        ERC20Like(LiquidityPoolLike(pool).asset_()).transferFrom(msg.sender, address(this), amount);
+    function deployLiquidityPool(address _asset, string memory _name, string memory _symbol) public returns (address) {
+        return liquidityPoolFactory.newLiquidityPool(_asset, _name, _symbol, 18);
     }
 
-    function mint(address pool, uint256 amount) public {
-        LiquidityPoolLike(pool).mint(msg.sender, amount);
+    function deposit(address pool, uint256 assets, address receiver) public returns (uint256 shares) {
+        shares = LiquidityPool(pool).deposit(assets, receiver);
+        return shares;
     }
 
-    function withdraw(address pool, uint256 amount) public {
-        LiquidityPoolLike(pool).burn(msg.sender, amount);
-        ERC20Like(LiquidityPoolLike(pool).asset_()).transferFrom(address(this), msg.sender, amount);
-    }
-
-    function redeem(address pool, uint256 amount) public {
-        LiquidityPoolLike(pool).burn(msg.sender, amount);
-    }
+    // Implement other functionalities like withdraw, mint, and redeem based on the LiquidityPool's capabilities
 
     function approve(address token, address spender, uint256 value) external {
         escrow.approve(token, spender, value);
     }
 
     function getBalance(address pool) public view returns (uint256) {
-        return LiquidityPoolLike(pool).balanceOf(msg.sender);
+        return LiquidityPool(pool).balanceOf(msg.sender);
     }
+
+    // ... (Additional methods and logic)
 }
