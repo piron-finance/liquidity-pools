@@ -43,7 +43,7 @@ contract LiquidityPool is IERC4626 {
     /// @notice Escrow contract for tokens
     address public immutable escrow;
 
-    constructor(address _asset, address _share, bytes16 _trancheId, uint64 _poolId, address _manager, address _escrow) {
+    constructor(uint64 _poolId, bytes16 _trancheId, address _asset, address _share, address _manager, address _escrow) {
         asset_ = _asset;
         share_ = _share;
         escrow = _escrow;
@@ -66,11 +66,13 @@ contract LiquidityPool is IERC4626 {
     // --- ERC-4626 methods ----
     function deposit(uint256 _assets, address receiver) public virtual returns (uint256 shares) {
         require(_assets > 0, "Deposit less than Zero");
+
         require(IERC20(asset_).balanceOf(receiver) >= _assets, "LiquidityPool/Insufficient balance");
 
         SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), _assets);
 
         shares = manager.deposit(address(this), _assets, receiver, msg.sender);
+
         shareHolders[receiver] += shares;
     }
 
@@ -111,7 +113,7 @@ contract LiquidityPool is IERC4626 {
 
     /// @inheritdoc IERC7575Minimal
     function totalAssets() external view returns (uint256) {
-        return convertToAssets(IERC20Metadata(share_).totalSupply());
+        return convertToAssets(IERC20Metadata(share_).totalSupply()); // rework this
     }
 
     function convertToShares(uint256 _assets) external view virtual returns (uint256) {
