@@ -48,9 +48,8 @@ contract InvestmentManager {
     // Immutables
     EscrowLike public immutable escrow;
 
-    constructor(address escrow_, address liquidityPoolFactory_) {
+    constructor(address escrow_) {
         escrow = EscrowLike(escrow_);
-        liquidityPoolFactory = LiquidityPoolFactoryLike(liquidityPoolFactory_);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -59,9 +58,12 @@ contract InvestmentManager {
 
     function deposit(address liquidityPool, uint256 assets, address receiver) public returns (uint256 shares) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        ERC20Like share = ERC20Like(lp.share());
 
-        require((shares = previewDeposit(address(lp), assets)) != 0, "ZERO_SHARES"); //since we round down in previewDeposit, this is a safe check
+        ERC20Like share = ERC20Like(lp.share()); //console this
+
+        require((shares = previewDeposit(address(lp), assets)) != 0, "ZERO_SHARES");
+
+        /// this too //since we round down in previewDeposit, this is a safe check
 
         // mint shares to receiver
         shares = convertToShares(address(lp), assets);

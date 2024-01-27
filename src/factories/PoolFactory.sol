@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.19;
 
-import {Auth} from "../Auth.sol";
-import {ERC20} from "../tokens/ERC20.sol";
 import {LiquidityPool} from "../LiquidityPool.sol";
 
 interface LiquidityPoolFactoryLike {
     function newLiquidityPool(
+        uint64 poolId,
+        bytes16 trancheId,
         address asset,
         address share,
         address manager,
-        address escrow,
-        uint64 poolId,
-        bytes16 trancheId
+        address escrow
     ) external returns (address);
 }
 
@@ -24,14 +22,14 @@ contract LiquidityPoolFactory {
     // }
 
     function newLiquidityPool(
+        uint64 poolId,
+        bytes16 trancheId,
         address asset,
         address share,
         address manager,
-        address escrow,
-        uint64 poolId,
-        bytes16 trancheId
+        address escrow
     ) external returns (address) {
-        LiquidityPool pool = new LiquidityPool(asset, share, manager, escrow, poolId, trancheId);
+        LiquidityPool pool = new LiquidityPool(uint64(poolId), bytes16(trancheId), asset, share, manager, escrow );
 
         return address(pool);
     }
