@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
+// import "hardhat/console.sol";
 import {ERC20} from "./tokens/ERC20.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
@@ -8,7 +9,7 @@ import "./interfaces/IERC20.sol";
 import "./interfaces/IERC7575.sol";
 
 interface ManagerLike {
-    function deposit(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
+    function deposit(address lp, uint256 assets, address receiver) external returns (uint256);
     function mint(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
     function withdraw(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
     function redeem(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
@@ -25,7 +26,7 @@ interface ManagerLike {
 }
 
 contract LiquidityPool is IERC4626 {
-    using SafeTransferLib for ERC20;
+    // using SafeTransferLib for ERC20;
     using FixedPointMathLib for uint256;
 
     mapping(address => uint256) public shareHolders;
@@ -64,16 +65,21 @@ contract LiquidityPool is IERC4626 {
     //////////////////////////////////////////////////////////////*/
 
     // --- ERC-4626 methods ----
-    function deposit(uint256 _assets, address receiver) public virtual returns (uint256 shares) {
+    function deposit(uint256 _assets, address receiver) public virtual returns (uint256) {
         require(_assets > 0, "Deposit less than Zero");
-
+        // console.log("log 5: ");
         require(IERC20(asset_).balanceOf(receiver) >= _assets, "LiquidityPool/Insufficient balance");
+        //  console.log("log 25");
 
         SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), _assets);
+        //  console.log("log 35");
 
-        shares = manager.deposit(address(this), _assets, receiver, msg.sender);
-
+        uint256 shares = convertToAssets(_assets);
+        manager.deposit(address(this), _assets, receiver);
+        //   console.log("log 45");
         shareHolders[receiver] += shares;
+
+        return shares;
     }
 
     //    add events
