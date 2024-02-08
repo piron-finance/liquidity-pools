@@ -28,6 +28,7 @@ interface LiquidityPoolLike is ERC20Like {
 
 interface EscrowLike {
     function approve(address token, address spender, uint256 value) external;
+    function transferOut(address receiver, uint256 amount) external;
 }
 
 interface TrancheTokenLike is ERC20Like {
@@ -99,7 +100,9 @@ contract InvestmentManager {
         share.burn(owner, shares);
 
         // transfer assets to owner
-        SafeTransferLib.safeTransfer(ERC20(lp.asset()), receiver, assets);
+        EscrowLike(escrow).approve(lp.asset(), receiver, assets);
+
+        EscrowLike(escrow).transferOut(receiver, assets);
     }
 
     function redeem(address liquidityPool, uint256 shares, address receiver, address owner)
@@ -115,7 +118,9 @@ contract InvestmentManager {
         share.burn(owner, shares);
 
         // transfer assets to owner
-        SafeTransferLib.safeTransfer(ERC20(lp.asset()), receiver, assets);
+        EscrowLike(escrow).approve(lp.asset(), receiver, assets);
+
+        EscrowLike(escrow).transferOut(receiver, assets);
     }
 
     /*//////////////////////////////////////////////////////////////
