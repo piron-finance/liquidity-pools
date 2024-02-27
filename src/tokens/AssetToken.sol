@@ -35,7 +35,7 @@ interface Token {
     event Approval(address indexed _owner, address indexed _spender, uint256 _value);
 }
 
-contract usdss is Token {
+contract AssetToken is Token {
     uint256 private constant MAX_UINT256 = 2 ** 256 - 1;
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) public allowed;
@@ -79,6 +79,12 @@ contract usdss is Token {
         }
         emit Transfer(_from, _to, _value); //solhint-disable-line indent, no-unused-vars
         return true;
+    }
+
+    function mint(address to, uint256 amount) public {
+        balances[to] += amount;
+        totalSupply += amount;
+        emit Transfer(address(0), to, amount);
     }
 
     function balanceOf(address _owner) public view override returns (uint256 balance) {

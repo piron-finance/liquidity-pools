@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 import "../interfaces/IERC20.sol";
 
-contract ERC20 is IERC20 {
+contract ShareToken is IERC20 {
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;

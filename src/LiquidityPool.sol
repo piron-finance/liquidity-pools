@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-// import "hardhat/console.sol";
+import "forge-std/console.sol";
 import {ERC20} from "./tokens/ERC20.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
@@ -67,16 +67,16 @@ contract LiquidityPool is IERC4626 {
     // --- ERC-4626 methods ----
     function deposit(uint256 _assets, address receiver) public virtual returns (uint256) {
         require(_assets > 0, "Deposit less than Zero");
-        // console.log("log 5: ");
+        console.log("log 5: ");
         require(IERC20(asset_).balanceOf(receiver) >= _assets, "LiquidityPool/Insufficient balance");
-        //  console.log("log 25");
+        console.log("log 25");
 
         SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), _assets);
-        //  console.log("log 35");
+        console.log("log 35");
 
         uint256 shares = convertToAssets(_assets);
         manager.deposit(address(this), _assets, receiver);
-        //   console.log("log 45");
+        console.log("log 45");
         shareHolders[receiver] += shares;
 
         return shares;
