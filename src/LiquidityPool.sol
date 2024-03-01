@@ -10,7 +10,7 @@ import "./interfaces/IERC7575.sol";
 
 interface ManagerLike {
     function deposit(address lp, uint256 assets, address receiver) external returns (uint256);
-    function mint(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
+    function mint(address lp, uint256 shares, address receiver) external returns (uint256);
     function withdraw(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
     function redeem(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
     function maxDeposit(address lp, address receiver) external view returns (uint256);
@@ -67,16 +67,12 @@ contract LiquidityPool is IERC4626 {
     // --- ERC-4626 methods ----
     function deposit(uint256 _assets, address receiver) public virtual returns (uint256) {
         require(_assets > 0, "Deposit less than Zero");
-        console.log("log 5: ");
         require(IERC20(asset_).balanceOf(receiver) >= _assets, "LiquidityPool/Insufficient balance");
-        console.log("log 25");
 
         SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), _assets);
-        console.log("log 35");
 
         uint256 shares = convertToAssets(_assets);
         manager.deposit(address(this), _assets, receiver);
-        console.log("log 45");
         shareHolders[receiver] += shares;
 
         return shares;
@@ -90,7 +86,7 @@ contract LiquidityPool is IERC4626 {
         assets = manager.previewMint(address(this), _shares); // No need to check for rounding error, previewMint rounds up.
         SafeTransferLib.safeTransferFrom(ERC20(asset_), msg.sender, address(escrow), assets);
 
-        assets = manager.mint(address(this), _shares, receiver, msg.sender);
+        assets = manager.mint(address(this), _shares, receiver);
         shareHolders[receiver] += _shares;
     }
 

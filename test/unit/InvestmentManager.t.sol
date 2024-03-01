@@ -5,57 +5,11 @@ pragma abicoder v2;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
-// import contracts
+import "../BaseTest.t.sol";
 
-import {IERC20} from "../../src/interfaces/IERC20.sol";
-import {IERC7575} from "../../src/interfaces/IERC7575.sol";
-
-// tokens
-import {AssetToken, Token} from "../../src/tokens/AssetToken.sol";
-import {ShareToken} from "../../src/tokens/ShareToken.sol";
-
-// utils
-import {FixedPointMathLib} from "../../src/utils/FixedPointMathLib.sol";
-import {SafeTransferLib} from "../../src/utils/SafeTransferLib.sol";
-
-// core contracts
-import {Escrow} from "../../src/Escrow.sol";
-import {LiquidityPoolFactory, LiquidityPoolFactoryLike} from "../../src/factories/PoolFactory.sol";
-import {InvestmentManager, LiquidityPoolLike} from "../../src/InvestmentManager.sol";
-import {LiquidityPool} from "../../src/LiquidityPool.sol";
-
-contract InvestmentManagerTest is Test {
-    Token public Token1;
-    IERC20 public Token2;
-
-    Escrow public escrow;
-    InvestmentManager public investmentManager;
-    LiquidityPoolFactory public liquidityPoolFactory;
-    LiquidityPool public Pool;
-
-    address investor = makeAddr("investor");
-    address nonMember = makeAddr("nonMember");
-    address randomUser = makeAddr("randomUser");
-
-    function setUp() public {
-        vm.startPrank(investor);
-        Token1 = new AssetToken(1000000, "usdss", 18, "usdt");
-        vm.stopPrank();
-        Token2 = new ShareToken();
-
-        escrow = new Escrow();
-        investmentManager = new InvestmentManager(address(escrow));
-        liquidityPoolFactory = new LiquidityPoolFactory();
-
-        address pool_ = liquidityPoolFactory.newLiquidityPool(
-            1,
-            0x00000000000000000000000000000003,
-            address(Token1),
-            address(Token2),
-            address(investmentManager),
-            address(escrow)
-        );
-
-        Pool = LiquidityPool(pool_);
+contract InvestmentManagerTest is BaseTest {
+    function setUp() public virtual override {
+        BaseTest.setUp();
+        console.log("Liquidity pool deployed");
     }
 }

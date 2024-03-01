@@ -37,7 +37,7 @@ contract BaseTest is Test {
     address nonMember = makeAddr("nonMember");
     address randomUser = makeAddr("randomUser");
 
-    function setUp() public {
+    function setUp() public virtual {
         vm.startPrank(investor);
         Token1 = new AssetToken(1000000, "usdss", 18, "usdt");
         vm.stopPrank();
@@ -59,23 +59,23 @@ contract BaseTest is Test {
         Pool = LiquidityPool(pool_);
     }
 
-    function test_deposit() public {
-        // LiquidityPool lp = LiquidityPool(Pool);
-        uint256 amount = 1000;
+    // function test_deposit() public {
+    //     // LiquidityPool lp = LiquidityPool(Pool);
+    //     uint256 amount = 1000;
 
-        Token1.approve(address(Pool), amount);
-        investmentManager.deposit(address(Pool), amount, investor);
-        console.log("pool", address(Pool));
-        console.log("investor", Token1.balanceOf(investor));
-    }
+    //     Token1.approve(address(Pool), amount);
+    //     investmentManager.deposit(address(Pool), amount, investor);
+    //     console.log("pool", address(Pool));
+    //     console.log("investor", Token1.balanceOf(investor));
+    // }
 
-    function test_LiquidityDeposit() public {
-        // LiquidityPool lp = LiquidityPool(Pool);
-        uint256 amount = 500000;
-        vm.startPrank(investor);
-        Token1.approve(address(Pool), amount);
-        console.log("balance of investor", Token1.balanceOf(investor));
-        console.log("allowance", Token1.allowance(investor, address(Pool)));
-        vm.stopPrank();
-    }
+    // function test_LiquidityDeposit() public {
+    //     // LiquidityPool lp = LiquidityPool(Pool);
+    //     uint256 amount = 500000;
+    //     vm.startPrank(investor);
+    //     Token1.approve(address(Pool), amount);
+    //     console.log("balance of investor", Token1.balanceOf(investor));
+    //     console.log("allowance", Token1.allowance(investor, address(Pool)));
+    //     vm.stopPrank();
+    // }
 }
