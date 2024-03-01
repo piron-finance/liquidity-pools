@@ -60,21 +60,14 @@ contract InvestmentManager {
 
     function deposit(address liquidityPool, uint256 assets, address receiver) public returns (uint256 shares) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        console.log("log 1: ", liquidityPool);
-        ERC20Like share = ERC20Like(lp.share()); //console this
-        console.log("log 2: ");
+        ERC20Like share = ERC20Like(lp.share());
 
         require((shares = previewDeposit(address(lp), assets)) != 0, "ZERO_SHARES");
 
-        /// this too //since we round down in previewDeposit, this is a safe check
-        console.log("log 3 ");
-
         // mint shares to receiver
         shares = convertToShares(address(lp), assets);
-        console.log("log 4");
 
         share.mint(receiver, shares);
-        console.log("log 5: ");
     }
 
     function mint(address liquidityPool, uint256 shares, address receiver) public returns (uint256) {
@@ -101,7 +94,6 @@ contract InvestmentManager {
 
         // transfer assets to owner
         EscrowLike(escrow).approve(lp.asset(), receiver, assets);
-
         EscrowLike(escrow).transferOut(receiver, assets);
     }
 
@@ -109,16 +101,22 @@ contract InvestmentManager {
         public
         returns (uint256 assets)
     {
+        console.log("6");
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
+        console.log("7");
         ERC20Like share = ERC20Like(lp.share());
+        console.log("8");
 
         assets = previewRedeem(address(lp), shares); // No need to check for rounding error, previewMint rounds up.
+        console.log("9");
 
         // burn shares from receiver
         share.burn(owner, shares);
+        console.log("10");
 
         // transfer assets to owner
         EscrowLike(escrow).approve(lp.asset(), receiver, assets);
+        console.log("11");
 
         EscrowLike(escrow).transferOut(receiver, assets);
     }
@@ -133,6 +131,7 @@ contract InvestmentManager {
 
         return supply == 0 ? assets_ : assets_.mulDivDown(supply, lp.totalAssets());
     }
+    //  fix this . for eg line 139 should be ERC20Like(lp.share()).balanceOf(escrow). balance will always be zero as funds are not transferrede to this contract;
 
     function convertToAssets(address liquidityPool, uint256 shares_) public view virtual returns (uint256) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
