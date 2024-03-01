@@ -101,22 +101,16 @@ contract InvestmentManager {
         public
         returns (uint256 assets)
     {
-        console.log("6");
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        console.log("7");
         ERC20Like share = ERC20Like(lp.share());
-        console.log("8");
 
         assets = previewRedeem(address(lp), shares); // No need to check for rounding error, previewMint rounds up.
-        console.log("9");
 
         // burn shares from receiver
         share.burn(owner, shares);
-        console.log("10");
 
         // transfer assets to owner
         EscrowLike(escrow).approve(lp.asset(), receiver, assets);
-        console.log("11");
 
         EscrowLike(escrow).transferOut(receiver, assets);
     }
@@ -131,7 +125,7 @@ contract InvestmentManager {
 
         return supply == 0 ? assets_ : assets_.mulDivDown(supply, lp.totalAssets());
     }
-    //  fix this . for eg line 139 should be ERC20Like(lp.share()).balanceOf(escrow). balance will always be zero as funds are not transferrede to this contract;
+    //  fix this . for eg line 139 should be ERC20Like(lp.share()).balanceOf(escrow). balance will always be zero as funds are not transferrede to this contract.  change it to asset too;
 
     function convertToAssets(address liquidityPool, uint256 shares_) public view virtual returns (uint256) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
