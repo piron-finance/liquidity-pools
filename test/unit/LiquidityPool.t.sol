@@ -7,7 +7,7 @@ import "forge-std/console.sol";
 
 import "../BaseTest.t.sol";
 
-contract LiquiodityPoolTest is BaseTest {
+contract LiquidityPoolTest is BaseTest {
     function setUp() public virtual override {
         BaseTest.setUp();
         console.log("Liquidity pool deployed");
@@ -59,5 +59,53 @@ contract LiquiodityPoolTest is BaseTest {
         Pool.redeem(amount, investor, investor);
         vm.stopPrank();
         assertEq(Token2.balanceOf(investor), 0);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            ACCOUNTING LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    // temporary test. refactor convert to assets and shares
+
+    function test_convertToAssets() public {
+        uint256 amount = 100;
+        assertEq(Pool.convertToAssets(amount), 100);
+    }
+
+    function test_convertToShares() public {
+        uint256 amount = 100;
+        assertEq(Pool.convertToShares(amount), 100);
+    }
+
+    function test_previewDeposit() public {
+        uint256 amount = 100;
+        assertEq(Pool.previewDeposit(amount), 100);
+    }
+
+    function test_previewWithdraw() public {
+        uint256 amount = 100;
+        assertEq(Pool.previewWithdraw(amount), 100);
+    }
+
+    function test_previewMint() public {
+        uint256 amount = 100;
+        assertEq(Pool.previewMint(amount), 100);
+    }
+
+    function test_previewRedeem() public {
+        uint256 amount = 100;
+        assertEq(Pool.previewRedeem(amount), 100);
+    }
+
+    // function test_totalAssets() public {
+    //     assertEq(Pool.totalAssets(), 0);
+    // }
+
+    function test_maxRedeem() public {
+        assertEq(Pool.maxRedeem(investor), Token2.balanceOf(investor));
+    }
+
+    function test_maxWithdraw() public {
+        assertEq(Pool.maxWithdraw(investor), Token1.balanceOf(investor));
     }
 }
