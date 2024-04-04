@@ -49,7 +49,7 @@ contract LiquidityPoolFactoryTest is Test {
     }
 
     function test_newLiquidityPool() public {
-        bytes16 trancheId = 0x00000000000000000000000000000003;
+        bytes16 trancheId = 0x00000000000000000000000000000004;
 
         address pool_ = liquidityPoolFactory.newLiquidityPool(
             1, trancheId, address(Token1), address(Token2), address(investmentManager), address(escrow)
