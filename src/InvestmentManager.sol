@@ -16,9 +16,8 @@ interface ERC20Like {
     function burn(address, uint256) external;
 }
 
-interface LiquidityPoolLike is ERC20Like {
+interface LiquidityPoolLike is ERC20Like { 
     function poolId() external view returns (uint64);
-    function trancheId() external view returns (bytes16);
     function asset() external view returns (address);
     function share() external view returns (address);
     function totalAssets() external view returns (uint256);
@@ -41,8 +40,33 @@ interface LiquidityPoolFactoryLike {
         returns (address);
 }
 
+struct InvestmentState {
+
+    uint128 maxWithdraw;
+
+    
+    uint128 pendingDeposit;
+     uint128 pendingWithdraw;
+
+
+    uint128 pendingRedeem;
+
+    // uint128 claimableCancelDepositRequest;
+
+    // uint128 claimableCancelRedeemRequest;
+
+    bool pendingCancelDeposit;
+
+    bool pendingCancelRedeem;
+
+    bool exists;
+}
+
 contract InvestmentManager {
-    using FixedPointMathLib for uint256;
+    using FixedPointMathLib for uint256; 
+
+ mapping (address liquidityPool => mapping(address investor => InvestmentState)) public investments;
+
 
     // factories
     LiquidityPoolFactoryLike public liquidityPoolFactory;
@@ -58,16 +82,30 @@ contract InvestmentManager {
                         DEPOSIT/WITHDRAWAL LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function deposit(address liquidityPool, uint256 assets, address receiver) public returns (uint256 shares) {
+    function deposit(address liquidityPool, uint256 assets, address receiver) public returns (bool) {
+        //   LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
+          uint128 amount = uint128(assets);
+
+          InvestmentState storage state = investments[liquidityPool][receiver];
+          state.pendingDeposit = state.pendingDeposit + amount;
+          state.exists = true;
+
+          return true;
+    }
+
+    function processDeposit(address liquidityPool, uint256 assets, address receiver) public returns (uint256 shares) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
         ERC20Like share = ERC20Like(lp.share());
+        console.log("one");
 
         require((shares = previewDeposit(address(lp), assets)) != 0, "ZERO_SHARES");
-
+        console.log("two");
         // mint shares to receiver
         shares = convertToShares(address(lp), assets);
+        console.log("three");
 
         share.mint(receiver, shares);
+        console.log("four");
     }
 
     function mint(address liquidityPool, uint256 shares, address receiver) public returns (uint256) {
@@ -121,7 +159,8 @@ contract InvestmentManager {
 
     function convertToShares(address liquidityPool, uint256 assets_) public view virtual returns (uint256) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        uint256 supply = ERC20(lp.asset()).balanceOf(address(lp));
+        uint256 supply = ERC20(lp.asset()).balanceOf(address(escrow));
+        console.log("supply", supply);
 
         return supply == 0 ? assets_ : assets_.mulDivDown(supply, lp.totalAssets());
     }

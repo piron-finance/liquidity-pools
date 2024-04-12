@@ -8,8 +8,10 @@ import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
 import "./interfaces/IERC20.sol";
 import "./interfaces/IERC7575.sol";
 
+
 interface ManagerLike {
-    function deposit(address lp, uint256 assets, address receiver) external returns (uint256);
+    function deposit(address lp, uint256 assets, address receiver) external returns (bool);
+    function processDeposit(address lp, uint256 assets, address receiver) external returns (uint256);
     function mint(address lp, uint256 shares, address receiver) external returns (uint256);
     function withdraw(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
     function redeem(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
@@ -28,15 +30,19 @@ interface ManagerLike {
 contract LiquidityPool is IERC4626 {
     // using SafeTransferLib for ERC20;
     using FixedPointMathLib for uint256;
+    uint256 constant REQUEST_ID = 0;
 
-    mapping(address => uint256) public shareHolders;
 
     //   Immutables
     address public immutable asset_;
     uint64 public immutable poolId;
     address public immutable share_;
-    /// @notice Identifier of the share of the pool
-    bytes16 public immutable trancheId;
+    uint256 public immutable EPOCH_DURATION = 1712889976;
+   
+      // Duration of the deposit epoch
+    uint256 public epochEndTime;
+    bool public epochInProgress;
+
 
     /// @notice Liquidity Pool implementation contract
     ManagerLike public manager;
@@ -44,19 +50,46 @@ contract LiquidityPool is IERC4626 {
     /// @notice Escrow contract for tokens
     address public immutable escrow;
 
-    constructor(uint64 _poolId, bytes16 _trancheId, address _asset, address _share, address _manager, address _escrow) {
+    // Events
+    event Deposit( uint256 assets, address receiver);
+    event ProcessDeposit(uint256 assets, address receiver, uint256 shares);
+
+
+     modifier onlyDuringEpoch {
+        require (epochInProgress, "Epoch is not active");    
+         _;
+     }
+
+     modifier onlyAfterEpoch {
+        require(block.timestamp >= epochEndTime, "Epoch is not concluded");
+        _;
+     }
+
+    
+
+    constructor(uint64 _poolId,  address _asset, address _share, address _manager, address _escrow ) {
         asset_ = _asset;
         share_ = _share;
         escrow = _escrow;
-        trancheId = _trancheId;
         manager = ManagerLike(_manager);
         poolId = _poolId;
+        // EPOCH_DURATION =  block.timestamp + 5 minutes;
     }
 
-    // modifier onlyOwner() {
-    //     require(msg.sender == owner, "Only owner can call this function.");
-    //     _;
-    // }
+  /*//////////////////////////////////////////////////////////////
+                        HANDLE EPOCHS
+    //////////////////////////////////////////////////////////////*/
+
+    function startNextEpoch() public {
+        epochEndTime =  EPOCH_DURATION;
+        epochInProgress = true;
+    }
+
+    function handleEndOfEpoch() public{
+        require(block.timestamp >= epochEndTime, "Epoch is still in progress");
+
+        epochInProgress = false;
+    }
 
     // add request deposit with eip2612. add logic for share
 
@@ -64,18 +97,23 @@ contract LiquidityPool is IERC4626 {
                         DEPOSIT/WITHDRAWAL LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    // --- ERC-4626 methods ----
-    function deposit(uint256 _assets, address receiver) public virtual returns (uint256) {
+    // --- ERC-4626 methods ----  // work on visibility of functions
+    function deposit(uint256 _assets, address receiver) public onlyDuringEpoch virtual returns (uint256) {
         require(_assets > 0, "Deposit less than Zero");
         require(IERC20(asset_).balanceOf(receiver) >= _assets, "LiquidityPool/Insufficient balance");
+        require(manager.deposit(address(this), _assets, receiver), "Deposit request failed");
+        console.log("a");
 
         SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), _assets);
+         console.log("b");
 
-        uint256 shares = convertToAssets(_assets);
-        manager.deposit(address(this), _assets, receiver);
-        shareHolders[receiver] += shares;
+        return REQUEST_ID;
+    }
 
-        return shares;
+    function processDeposit(uint256 _assets, address receiver) public onlyAfterEpoch returns (uint256 shares)  {
+        shares = manager.processDeposit( address(this), _assets,  receiver);
+
+        emit ProcessDeposit(_assets, receiver, shares);
     }
 
     //    add events
@@ -87,14 +125,14 @@ contract LiquidityPool is IERC4626 {
         SafeTransferLib.safeTransferFrom(ERC20(asset_), msg.sender, address(escrow), assets);
 
         assets = manager.mint(address(this), _shares, receiver);
-        shareHolders[receiver] += _shares;
+       
     }
 
     function withdraw(uint256 _assets, address receiver, address owner_) public virtual returns (uint256 shares) {
         require(msg.sender == owner_, "LiquidityPool/not-owner");
         require(_assets > 0, "Withdraw less than Zero");
         require(receiver != address(0), "Receiver is Zero");
-        require(shareHolders[owner_] >= _assets, "Insufficient balance");
+      
 
         shares = manager.withdraw(address(this), _assets, receiver, owner_);
     }
@@ -104,7 +142,7 @@ contract LiquidityPool is IERC4626 {
         require((assets = previewRedeem(_shares)) != 0, "ZERO_ASSETS");
         require(_shares > 0, "Withdraw less than Zero");
         require(receiver != address(0), "Receiver is Zero");
-        require(shareHolders[owner_] >= _shares, "Insufficient balance");
+   
 
         assets = manager.redeem(address(this), _shares, receiver, owner_);
     }
@@ -114,11 +152,12 @@ contract LiquidityPool is IERC4626 {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IERC7575Minimal
-    function totalAssets() external view returns (uint256) {
-        return convertToAssets(IERC20Metadata(share_).totalSupply()); // rework this
+       function totalAssets() external view returns (uint256) {
+        uint256 escrowAssets = ERC20(asset_).balanceOf(address(escrow));
+        return escrowAssets; // rework this
     }
 
-    function convertToShares(uint256 _assets) external view virtual returns (uint256) {
+    function convertToShares(uint256 _assets) public view virtual returns (uint256) {
         return manager.convertToShares(address(this), _assets);
     }
 
@@ -163,7 +202,7 @@ contract LiquidityPool is IERC4626 {
     }
 
     function totalSharesOfUser(address user) public view returns (uint256) {
-        return shareHolders[user];
+        return ERC20(share_).balanceOf(user);
     }
 
     /*//////////////////////////////////////////////////////////////

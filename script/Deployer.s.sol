@@ -2,8 +2,9 @@ pragma solidity ^0.8.19;
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma abicoder v2;
 
-import "forge-std/Test.sol";
+
 import "forge-std/console.sol";
+import "forge-std/Script.sol";
 
 // import contracts
 
@@ -24,8 +25,9 @@ import {LiquidityPoolFactory, LiquidityPoolFactoryLike} from "../src/factories/P
 import {InvestmentManager, LiquidityPoolLike} from "../src/InvestmentManager.sol";
 import {LiquidityPool} from "../src/LiquidityPool.sol";
 
-contract BaseTest is Test {
-    Token public Token1;
+contract Deployer is Script {
+
+      Token public Token1;
     IERC20 public Token2;
 
     Escrow public escrow;
@@ -37,10 +39,10 @@ contract BaseTest is Test {
     address nonMember = makeAddr("nonMember");
     address randomUser = makeAddr("randomUser");
 
-    function setUp() public virtual {
-        vm.startPrank(investor);
+    function deploy() public virtual {
+
         Token1 = new AssetToken(1000000, "usdss", 18, "usdt");
-        vm.stopPrank();
+
         Token2 = new ShareToken();
 
         escrow = new Escrow();
@@ -58,5 +60,4 @@ contract BaseTest is Test {
 
         Pool = LiquidityPool(pool_);
     }
-
 }
