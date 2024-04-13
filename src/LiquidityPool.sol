@@ -11,7 +11,8 @@ import "./interfaces/IERC7575.sol";
 
 interface ManagerLike {
     function deposit(address lp, uint256 assets, address receiver) external returns (bool);
-    function processDeposit(address lp, uint256 assets, address receiver) external returns (uint256);
+    function processDeposit(address lp,  address receiver) external returns (uint256);
+     function cancelPendingDeposit( address lp,address owner) external returns (uint128);
     function mint(address lp, uint256 shares, address receiver) external returns (uint256);
     function withdraw(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
     function redeem(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
@@ -111,10 +112,23 @@ contract LiquidityPool is IERC4626 {
     }
 
     function processDeposit(uint256 _assets, address receiver) public onlyAfterEpoch returns (uint256 shares)  {
-        shares = manager.processDeposit( address(this), _assets,  receiver);
+        shares = manager.processDeposit( address(this),  receiver);
 
         emit ProcessDeposit(_assets, receiver, shares);
     }
+
+    function cancelPendingDeposit(address owner) public onlyDuringEpoch returns(uint128 refund)  {
+        refund = manager.cancelPendingDeposit(address(this), owner);
+
+        //event
+    }
+
+
+    // function increaseDepositOrder() public onlyDuringEpoch {
+
+    // }
+
+    
 
     //    add events
 
