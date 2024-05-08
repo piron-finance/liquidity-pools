@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import "forge-std/console.sol";
+
 import {ERC20} from "./tokens/ERC20.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
 import "./interfaces/IERC20.sol";
 import "./interfaces/IERC7575.sol";
 
-
 interface ManagerLike {
     function deposit(address lp, uint256 assets, address receiver) external returns (bool);
     function processDeposit(address lp,  address receiver) external returns (uint256);
-     function cancelPendingDeposit( address lp,address owner) external returns (uint128);
-    function mint(address lp, uint256 shares, address receiver) external returns (uint256);
+    function cancelPendingDeposit( address lp,address owner) external returns (uint256);
+    function increaseDepositOrder( address lp,address receiver, uint256 assets) external returns (bool);
+    function decreaseDepositOrder( address lp,address receiver, uint256 assets) external;
+    function mint(address lp, address receiver) external returns (uint256);
     function withdraw(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
     function redeem(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
     function maxDeposit(address lp, address receiver) external view returns (uint256);
@@ -38,7 +39,7 @@ contract LiquidityPool is IERC4626 {
     address public immutable asset_;
     uint64 public immutable poolId;
     address public immutable share_;
-    uint256 public immutable EPOCH_DURATION = 1712889976;
+    uint256 public immutable EPOCH_DURATION = 1713143416;
    
       // Duration of the deposit epoch
     uint256 public epochEndTime;
@@ -54,6 +55,7 @@ contract LiquidityPool is IERC4626 {
     // Events
     event Deposit( uint256 assets, address receiver);
     event ProcessDeposit(uint256 assets, address receiver, uint256 shares);
+    event CancelPendingDeposit(address owner, uint256 refund);
 
 
      modifier onlyDuringEpoch {
@@ -102,45 +104,47 @@ contract LiquidityPool is IERC4626 {
     function deposit(uint256 _assets, address receiver) public onlyDuringEpoch virtual returns (uint256) {
         require(_assets > 0, "Deposit less than Zero");
         require(IERC20(asset_).balanceOf(receiver) >= _assets, "LiquidityPool/Insufficient balance");
-        require(manager.deposit(address(this), _assets, receiver), "Deposit request failed");
-        console.log("a");
-
+       
         SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), _assets);
-         console.log("b");
+        
+        require(manager.deposit(address(this), _assets, receiver), "Deposit request failed");
 
+        emit Deposit( _assets, receiver);
         return REQUEST_ID;
+
+        
     }
 
-    function processDeposit(uint256 _assets, address receiver) public onlyAfterEpoch returns (uint256 shares)  {
-        shares = manager.processDeposit( address(this),  receiver);
 
-        emit ProcessDeposit(_assets, receiver, shares);
-    }
 
-    function cancelPendingDeposit(address owner) public onlyDuringEpoch returns(uint128 refund)  {
+    function cancelPendingDeposit(address owner) public onlyDuringEpoch returns(uint256 refund)  {
         refund = manager.cancelPendingDeposit(address(this), owner);
 
-        //event
+        emit CancelPendingDeposit(owner, refund);
     }
 
 
-    // function increaseDepositOrder() public onlyDuringEpoch {
+    function increaseDepositOrder(address receiver, uint256 assets) public onlyDuringEpoch {
+        require (assets != 0, "Invalid amount");
+        require(IERC20(asset_).balanceOf(receiver) >= assets, "LiquidityPool/Insufficient balance");
 
-    // }
+        SafeTransferLib.safeTransferFrom(ERC20(asset_), receiver, address(escrow), assets);
 
-    
+        manager.increaseDepositOrder(address(this), receiver, assets);
+    }
 
-    //    add events
+    function decreaseDepositOrder(address receiver, uint256 assets) public onlyDuringEpoch {
+        require (assets != 0, "Invalid amount");
 
+        manager.decreaseDepositOrder(address(this), receiver, assets);
+    }
+
+    //fix why it doesnt work
     function mint(uint256 _shares, address receiver) public virtual returns (uint256 assets) {
         require(_shares > 0, "Deposit less than Zero");
-
-        assets = manager.previewMint(address(this), _shares); // No need to check for rounding error, previewMint rounds up.
-        SafeTransferLib.safeTransferFrom(ERC20(asset_), msg.sender, address(escrow), assets);
-
-        assets = manager.mint(address(this), _shares, receiver);
-       
-    }
+        assets = manager.mint(address(this),  receiver);
+        emit Deposit( assets, receiver);
+    } 
 
     function withdraw(uint256 _assets, address receiver, address owner_) public virtual returns (uint256 shares) {
         require(msg.sender == owner_, "LiquidityPool/not-owner");
@@ -153,7 +157,6 @@ contract LiquidityPool is IERC4626 {
 
     function redeem(uint256 _shares, address receiver, address owner_) public virtual returns (uint256 assets) {
         require(msg.sender == owner_, "LiquidityPool/not-owner");
-        require((assets = previewRedeem(_shares)) != 0, "ZERO_ASSETS");
         require(_shares > 0, "Withdraw less than Zero");
         require(receiver != address(0), "Receiver is Zero");
    
@@ -168,7 +171,7 @@ contract LiquidityPool is IERC4626 {
     /// @inheritdoc IERC7575Minimal
        function totalAssets() external view returns (uint256) {
         uint256 escrowAssets = ERC20(asset_).balanceOf(address(escrow));
-        return escrowAssets; // rework this
+        return escrowAssets; 
     }
 
     function convertToShares(uint256 _assets) public view virtual returns (uint256) {
@@ -179,20 +182,20 @@ contract LiquidityPool is IERC4626 {
         return manager.convertToAssets(address(this), _shares);
     }
 
-    function previewDeposit(uint256 _assets) public view virtual returns (uint256) {
-        return manager.previewDeposit(address(this), _assets);
+    function previewDeposit(uint256) external pure returns (uint256) {
+       revert();
     }
 
-    function previewMint(uint256 _shares) public view virtual returns (uint256) {
-        return manager.previewMint(address(this), _shares);
+    function previewMint(uint256 ) external pure returns (uint256) {
+       revert();
     }
 
-    function previewRedeem(uint256 _shares) public view virtual returns (uint256) {
-        return manager.previewRedeem(address(this), _shares);
+    function previewRedeem(uint256) external pure returns (uint256) {
+        revert();
     }
 
-    function previewWithdraw(uint256 assets_) public view virtual returns (uint256) {
-        return manager.previewWithdraw(address(this), assets_);
+    function previewWithdraw(uint256) external pure returns (uint256) {
+       revert();
     }
 
     /*//////////////////////////////////////////////////////////////

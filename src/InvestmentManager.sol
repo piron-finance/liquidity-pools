@@ -4,8 +4,7 @@ pragma solidity 0.8.19;
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
 import "./interfaces/IERC20.sol";
-import "./tokens/ERC20.sol";
-import "forge-std/console.sol";
+import "./tokens/ERC20.sol"; //what does it dop again?
 
 
 interface ERC20Like {
@@ -47,21 +46,24 @@ struct InvestmentState {
     uint256 totalDeposits;
     uint256 totalShares;
     
-    uint128 pendingDeposit;
-    uint128 pendingWithdraw;
+    uint256 pendingDeposit;
+    uint256 pendingWithdraw;
 
 
-    uint128 pendingRedeem;
-    uint128 maxWithdraw;
+    uint256 pendingRedeem;
+    uint256 maxWithdraw;
 
     bool pendingCancelDeposit;
     bool pendingCancelRedeem;
 
     bool exists;
 }
-
+// what works
+// deposit, increase, decrease, cancel, mint, withdraw
+//doesnt work convert to assets
 contract InvestmentManager {
     using FixedPointMathLib for uint256; 
+    uint256 public totalDeposits;
 
  mapping (address liquidityPool => mapping(address investor => InvestmentState)) public investments;
 
@@ -71,9 +73,14 @@ contract InvestmentManager {
 
     // Immutables
     EscrowLike public immutable escrow;
+    EscrowLike public immutable poolEscrow;
+    uint256 public immutable interestRate;
 
-    constructor(address escrow_) {
+    constructor(address escrow_, address poolEscrow_, uint256 interestRate_) {
         escrow = EscrowLike(escrow_);
+        poolEscrow = EscrowLike(poolEscrow_);
+        interestRate = interestRate_;
+
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -81,46 +88,51 @@ contract InvestmentManager {
     //////////////////////////////////////////////////////////////*/
 
     function deposit(address liquidityPool, uint256 assets, address receiver) public returns (bool) {
-        //   LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-          uint128 amount = uint128(assets);
+          uint256 amount = assets;
+          totalDeposits += amount;
 
           InvestmentState storage state = investments[liquidityPool][receiver];
           state.pendingDeposit = state.pendingDeposit + amount;
+          
           state.exists = true;
 
           return true;
     }
 
-    function processDeposit(address liquidityPool,  address receiver) external returns (uint256 shares) {
+    function processDeposit(address liquidityPool, uint256 assets,  address receiver) internal returns (uint256 shares) {
+       
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
+
         ERC20Like share = ERC20Like(lp.share_());
 
+
         InvestmentState storage state = investments[liquidityPool][receiver];
-        uint128 amount = state.pendingDeposit;
+        require(state.pendingDeposit == assets, "Mananger/partial execution prohibited");     
+
+        shares = convertToShares(address(lp),  receiver);
+        require(shares  > 0, "ZERO_SHARES");
 
 
-        require((shares = previewDeposit(address(lp), amount, receiver)) != 0, "ZERO_SHARES");
-
-        shares = convertToShares(address(lp), amount, receiver);
-
+        state.totalDeposits = state.pendingDeposit;
         state.pendingDeposit = 0;
-        state.totalDeposits = amount;
 
         share.mint(receiver, shares);
+
         return shares;
       
     }
 
-    function cancelPendingDeposit(address liquidityPool, address owner) external returns(uint128) {
+    function cancelPendingDeposit(address liquidityPool, address owner) external returns(uint256) {
           LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
           require (lp.epochInProgress(), "Manager/Epoch has closed");
 
+
           InvestmentState storage state = investments[liquidityPool][owner];
-          uint128 amount = state.pendingDeposit;
+          uint256 amount = state.pendingDeposit;
+          totalDeposits -= amount;
 
          EscrowLike(escrow).approve(lp.asset_(), owner, amount);
          require ( EscrowLike(escrow).transferOut(owner, amount), "Manager/ deposit refund failed");
-
          state.pendingDeposit = 0;
 
         return amount;
@@ -128,156 +140,154 @@ contract InvestmentManager {
 
     function increaseDepositOrder(address liquidityPool, address receiver, uint256 additionalAssets) public returns(bool) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-          require (lp.epochInProgress(), "Manager/Epoch has closed");
+        require (lp.epochInProgress(), "Manager/Epoch has closed");
 
-          InvestmentState storage state = investments[liquidityPool][receiver];
+        InvestmentState storage state = investments[liquidityPool][receiver];
 
-          require(state.exists && state.pendingDeposit != 0, "Manager/Error increasing deposit");
-          uint128 amount = uint128(additionalAssets);
-
-         state.pendingDeposit += amount;
+        require(state.exists && state.pendingDeposit != 0, "Manager/Error increasing deposit");
+        uint256 amount =  additionalAssets;
+        totalDeposits += amount;
+        state.pendingDeposit += amount;
 
           return true;
     }
 
      function decreaseDepositOrder(address liquidityPool, address receiver, uint256 assets) public returns(bool) {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-          require (lp.epochInProgress(), "Manager/Epoch has closed");
-
+        require (lp.epochInProgress(), "Manager/Epoch has closed");
 
           InvestmentState storage state = investments[liquidityPool][receiver];
-
           require(state.exists && state.pendingDeposit != 0, "Manager/Error increasing deposit");
           require(state.pendingDeposit > assets, "Manager/ Not enough assets");
-          uint128 amount = uint128(assets);
+          uint256 amount  = assets;
 
+         totalDeposits -= amount;
          state.pendingDeposit -= amount;
-
+          EscrowLike(escrow).approve(lp.asset_(), receiver, amount);
+         require ( EscrowLike(escrow).transferOut(receiver, amount), "Manager/ decrease deposit order failed");
           return true;
     }
 
 
-    function mint(address liquidityPool, uint256 shares, address receiver) public returns (uint256) {
-        LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        ERC20Like share = ERC20Like(lp.share_());
-
-        // mint shares to receiver
-        share.mint(receiver, shares);
-
-        return convertToAssets(address(lp), shares, receiver);
+    function mint(address liquidityPool, uint256 assets,  address receiver) public returns (uint256 shares) {
+       shares = processDeposit(liquidityPool, assets,  receiver);
+        return shares;
     }
 
     function withdraw(address liquidityPool, uint256 assets, address receiver, address owner)
         public
         returns (uint256 shares)
     {
-        LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        ERC20Like share = ERC20Like(lp.share_());
+    
+        InvestmentState storage state = investments[liquidityPool][owner];
+        processRedeem(liquidityPool, assets, owner, state);
 
-        shares = previewWithdraw(address(lp), assets); // No need to check for rounding error, previewMint rounds up.
-
-        // burn shares from receiver
-        share.burn(owner, shares);
-
-        // transfer assets to owner
-        EscrowLike(escrow).approve(lp.asset_(), receiver, assets);
-        EscrowLike(escrow).transferOut(receiver, assets);
+        shares = convertToShares(liquidityPool,  receiver);
+      
     }
 
     function redeem(address liquidityPool, uint256 shares, address receiver, address owner)
         public
         returns (uint256 assets)
     {
+         InvestmentState storage state = investments[liquidityPool][owner];
+        processRedeem(liquidityPool, shares, owner, state);
+
+        assets = convertToAssets(liquidityPool, shares, receiver);
+ 
+    }
+
+    function processRedeem(address liquidityPool, uint256 assets, address owner, InvestmentState storage state) internal {
         LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
         ERC20Like share = ERC20Like(lp.share_());
 
-        assets = previewRedeem(address(lp), shares, receiver); // No need to check for rounding error, previewMint rounds up.
+        require(assets != 0, "Manager/ Invalid amount");
+        require(state.maxWithdraw >= assets, "Manager/ Insufficient balance");
 
-        // burn shares from receiver
-        share.burn(owner, shares);
+        state.maxWithdraw = state.maxWithdraw - assets;
+        share.burn(owner, assets);
 
-        // transfer assets to owner
-        EscrowLike(escrow).approve(lp.asset_(), receiver, assets);
-
-        EscrowLike(escrow).transferOut(receiver, assets);
+         
+        EscrowLike(escrow).approve(lp.asset_(), owner, assets);
+        EscrowLike(escrow).transferOut(owner, assets);
     }
 
     /*//////////////////////////////////////////////////////////////
                             ACCOUNTING LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    function convertToShares(address liquidityPool, uint256 assets, address receiver) public view virtual returns (uint256) {
-        LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        uint256 totalAssets = ERC20(lp.asset_()).balanceOf(address(escrow));
-        uint256 investorContribution = calculateInvestorContribution(liquidityPool, receiver);
-        
-        // Ensure investorContribution is not zero to avoid division by zero
-        require(investorContribution > 0, "Investor contribution cannot be zero");
-
-        return assets.mulDivDown(investorContribution, totalAssets); 
-    }
 
 
+
+
+function convertToShares(address liquidityPool, address receiver) public view virtual returns (uint256 shares) {
+    LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
+    uint256 totalAssets = ERC20(lp.asset_()).balanceOf(address(escrow));
+
+    // Calculate the total investments including interest
+    uint256 totalInvestmentsWithInterest = totalAssets + totalAssets * interestRate / 100;
+
+    // Calculate the investor's contribution considering the interest rate
+    uint256 investorContribution = calculateInvestorContribution(liquidityPool, receiver);
+
+    // Calculate shares based on investor contribution percentage
+    shares = investorContribution * totalInvestmentsWithInterest / 100;
+
+    // Ensure shares are not greater than total assets
+    require(shares <= totalAssets, "Shares cannot exceed total assets");
+
+    return shares;
+}
+
+
+
+// fix. 
+ 
 
     function convertToAssets(address liquidityPool, uint256 shares, address receiver) public view virtual returns (uint256) {
-        LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        uint256 totalShares = ERC20(lp.share_()).totalSupply(); // Total supply of shares in the pool
-        uint256 totalAssets = ERC20(lp.asset_()).balanceOf(address(escrow));
-        uint256 investorContribution = calculateInvestorContribution(liquidityPool, receiver);
-        
-        // Ensure investorContribution is not zero to avoid division by zero
-        require(investorContribution > 0, "Investor contribution cannot be zero");
+    LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
+    uint256 totalShares = ERC20(lp.share_()).totalSupply(); // Total supply of shares in the pool
+    uint256 totalAssets = ERC20(lp.asset_()).balanceOf(address(escrow));
 
-        // Convert shares back to assets based on the investor's contribution
-        return shares.mulDivDown(totalAssets, investorContribution).mulDivDown(totalShares, totalAssets);
-    }
+    // Calculate the total investments including interest
+    uint256 totalInvestmentsWithInterest = totalAssets + totalAssets * interestRate / 100;
+
+    // Calculate the investor's contribution considering the interest rate
+    uint256 investorContribution = calculateInvestorContribution(liquidityPool, receiver) * totalInvestmentsWithInterest / 100;
+
+    // Ensure investorContribution is not zero to avoid division by zero
+    require(investorContribution > 0, "Investor contribution cannot be zero");
+
+    // Convert shares back to assets based on the investor's contribution
+    return shares.mulDivDown(totalAssets, investorContribution).mulDivDown(totalShares, totalInvestmentsWithInterest);
+}
 
 
     function calculateInvestorContribution(address liquidityPool, address investor) public view returns (uint256) {
          LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        require(lp.epochInProgress(), "Manager/ Epoch in progress");
 
         InvestmentState storage state = investments[liquidityPool][investor];
-        require(state.exists && state.totalDeposits != 0, "Manager/You have no fufilled orders");
 
-        uint256 investorBalance = state.totalDeposits;
+
+        require(state.exists , "Manager/You have no pending orders");
+
+        uint256 investorBalance = state.pendingDeposit;
+
         uint256 totalInvestments = ERC20(lp.asset_()).balanceOf(address(escrow));
-
-        return investorBalance * 100 / totalInvestments;
+        uint256 contribution = investorBalance * 100 / totalInvestments;
+        return contribution;
     }
 
-    function previewDeposit(address liquidityPool, uint256 assets_, address receiver) public view virtual returns (uint256) {
-        return convertToShares(liquidityPool, assets_, receiver);
-    }
-
-    function previewMint(address liquidityPool, uint256 shares_, address receiver) public view virtual returns (uint256) {
-        return convertToAssets(liquidityPool, shares_, receiver);
-    }
-
-    function previewRedeem(address liquidityPool, uint256 shares_, address receiver) public view virtual returns (uint256) {
-        return convertToAssets(liquidityPool, shares_, receiver);
-    }
-
-    function previewWithdraw(address liquidityPool, uint256 assets_) public view virtual returns (uint256) {
-        LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        uint256 supply = ERC20(lp.asset_()).balanceOf(address(lp));
-
-        return supply == 0 ? assets_ : assets_.mulDivUp(supply, lp.totalAssets());
-    }
-
+   
     /*//////////////////////////////////////////////////////////////
                      DEPOSIT/WITHDRAWAL LIMIT LOGIC
     //////////////////////////////////////////////////////////////*/
 
     function maxRedeem(address liquidityPool, address owner) public view virtual returns (uint256) {
-        LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        return ERC20Like(lp.share_()).balanceOf(owner);
+        return convertToShares(liquidityPool,  owner); // wonrg
     }
 
     function maxWithdraw(address liquidityPool, address owner) public view virtual returns (uint256) {
-        LiquidityPoolLike lp = LiquidityPoolLike(liquidityPool);
-        uint256 assets = ERC20Like(lp.share_()).balanceOf(owner);
-
-        return convertToAssets(address(lp), assets, owner);
+        return uint256(investments[liquidityPool][owner].maxWithdraw);
     }
 }
