@@ -2,6 +2,7 @@
 pragma solidity ^0.8.19;
 
 
+import "hardhat/console.sol";
 import {ERC20} from "./tokens/ERC20.sol";
 import {SafeTransferLib} from "./utils/SafeTransferLib.sol";
 import {FixedPointMathLib} from "./utils/FixedPointMathLib.sol";
@@ -14,15 +15,15 @@ interface ManagerLike {
     function cancelPendingDeposit( address lp,address owner) external returns (uint256);
     function increaseDepositOrder( address lp,address receiver, uint256 assets) external returns (bool);
     function decreaseDepositOrder( address lp,address receiver, uint256 assets) external;
-    function mint(address lp, address receiver) external returns (uint256);
-    function withdraw(address lp, uint256 assets, address receiver, address owner) external returns (uint256);
-    function redeem(address lp, uint256 shares, address receiver, address owner) external returns (uint256);
+    function mint(address lp, uint256 assets,  address receiver) external returns (uint256);
+    function withdraw(address lp,  address receiver, address owner) external returns (uint256);
+    function redeem(address lp,  address receiver, address owner) external returns (uint256);
     function maxDeposit(address lp, address receiver) external view returns (uint256);
     function maxMint(address lp, address receiver) external view returns (uint256);
     function maxWithdraw(address lp, address receiver) external view returns (uint256);
     function maxRedeem(address lp, address receiver) external view returns (uint256);
-    function convertToShares(address lp, uint256 assets) external view returns (uint256);
-    function convertToAssets(address lp, uint256 shares) external view returns (uint256);
+    function convertToShares(address lp, address receiver, uint256 assets) external view returns (uint256);
+    function convertToAssets(address lp, address receiver) external view returns (uint256);
     function previewMint(address lp, uint256 shares) external view returns (uint256 assets);
     function previewDeposit(address lp, uint256 assets) external view returns (uint256 shares);
     function previewWithdraw(address lp, uint256 assets) external view returns (uint256 shares);
@@ -115,6 +116,15 @@ contract LiquidityPool is IERC4626 {
         
     }
 
+      function mint(uint256 _shares, address receiver) public virtual returns (uint256 assets) {
+        require(_shares > 0, "Deposit less than Zero");
+        assets = manager.mint(address(this), _shares,  receiver);
+        emit Deposit( assets, receiver);
+    } 
+
+
+    function _mint(uint256 shares, uint256 assets, address receiver, address caller)
+
 
 
     function cancelPendingDeposit(address owner) public onlyDuringEpoch returns(uint256 refund)  {
@@ -139,47 +149,43 @@ contract LiquidityPool is IERC4626 {
         manager.decreaseDepositOrder(address(this), receiver, assets);
     }
 
-    //fix why it doesnt work
-    function mint(uint256 _shares, address receiver) public virtual returns (uint256 assets) {
-        require(_shares > 0, "Deposit less than Zero");
-        assets = manager.mint(address(this),  receiver);
-        emit Deposit( assets, receiver);
-    } 
+ 
+  
 
-    function withdraw(uint256 _assets, address receiver, address owner_) public virtual returns (uint256 shares) {
+    function withdraw( uint256 assets, address receiver, address owner_) public virtual returns (uint256 shares) {
         require(msg.sender == owner_, "LiquidityPool/not-owner");
-        require(_assets > 0, "Withdraw less than Zero");
+        // require(_assets > 0, "Withdraw less than Zero");
         require(receiver != address(0), "Receiver is Zero");
       
 
-        shares = manager.withdraw(address(this), _assets, receiver, owner_);
+        shares = manager.withdraw(address(this),  receiver, owner_);
     }
 
-    function redeem(uint256 _shares, address receiver, address owner_) public virtual returns (uint256 assets) {
+    function redeem( uint256 shares, address receiver, address owner_) public virtual returns (uint256 assets) {
         require(msg.sender == owner_, "LiquidityPool/not-owner");
-        require(_shares > 0, "Withdraw less than Zero");
+        // require(_shares > 0, "Withdraw less than Zero");
         require(receiver != address(0), "Receiver is Zero");
    
 
-        assets = manager.redeem(address(this), _shares, receiver, owner_);
+        assets = manager.redeem(address(this),  receiver, owner_);
     }
 
     /*//////////////////////////////////////////////////////////////
                             ACCOUNTING LOGIC
     //////////////////////////////////////////////////////////////*/
 
-    /// @inheritdoc IERC7575Minimal
+   
        function totalAssets() external view returns (uint256) {
         uint256 escrowAssets = ERC20(asset_).balanceOf(address(escrow));
         return escrowAssets; 
     }
 
-    function convertToShares(uint256 _assets) public view virtual returns (uint256) {
-        return manager.convertToShares(address(this), _assets);
+    function convertToShares(uint256 assets) public view virtual returns (uint256 shares) {
+        return manager.convertToShares(address(this), msg.sender, assets);
     }
 
-    function convertToAssets(uint256 _shares) public view virtual returns (uint256) {
-        return manager.convertToAssets(address(this), _shares);
+    function convertToAssets(uint256 shares) public view virtual returns (uint256 assets) {
+        return manager.convertToAssets(address(this), msg.sender);
     }
 
     function previewDeposit(uint256) external pure returns (uint256) {
@@ -236,11 +242,11 @@ contract LiquidityPool is IERC4626 {
                      VIEW TOKEN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function asset() external view override returns (address assetTokenAddress) {
+    function asset() external view returns (address assetTokenAddress) {
         return asset_;
     }
 
-    function share() external view override returns (address shareTokenAddress) {
+    function share() external view returns (address shareTokenAddress) {
         return share_;
     }
 }
