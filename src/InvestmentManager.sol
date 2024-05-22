@@ -109,7 +109,6 @@ contract InvestmentManager {
         state.Deposits = state.pendingDeposit;
         state.pendingDeposit = 0;
 
-
         share.mint(receiver, state.totalShares);
 
         return state.totalShares;
@@ -166,8 +165,7 @@ contract InvestmentManager {
     }
 
 
-
-//share and assets are just numbers
+   
     function withdraw(address liquidityPool,  address receiver, address owner, uint256 assets)
         public
         returns (uint256 shares)
@@ -207,7 +205,6 @@ contract InvestmentManager {
 
         require(state.totalShares != 0, "Manager/ Invalid amount");
 
-        // uint256 assets = convertToAssets(liquidityPool, owner, shares);
         share.burn(owner, state.totalShares);
          
         EscrowLike(poolEscrow).approve(lp.asset_(), owner, assets);
@@ -256,14 +253,10 @@ contract InvestmentManager {
 
     uint256 investorContributionPercentage = totalInvestorShares * 100 / totalShares;
 
-
     assets = investorContributionPercentage * totalReturns /100;
-
     return assets;
 
 }
-
-
 
 
    
